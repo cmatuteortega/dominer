@@ -709,6 +709,26 @@ function UI.Renderer.drawButton(text, x, y, width, height, pressed, animScale)
     UI.Fonts.drawAnimatedText(text, x + width/2, y + height/2, "button", color, "center", animProps)
 end
 
+function UI.Renderer.drawCoins()
+    local x, y = UI.Layout.getCoinDisplayPosition()
+
+    local text = gameState.coins .. " $"
+
+    local animProps = {}
+    if gameState.coinsAnimation then
+        animProps.scale = gameState.coinsAnimation.scale or 1
+        animProps.shake = gameState.coinsAnimation.shake or 0
+    end
+
+    local color = {1, 0.9, 0.3, 1}  -- Gold color
+    if gameState.coinsAnimation and gameState.coinsAnimation.color then
+        color = gameState.coinsAnimation.color
+    end
+
+    -- Draw coins with animated effects
+    UI.Fonts.drawAnimatedText(text, x, y, "large", color, "center", animProps)
+end
+
 function UI.Renderer.drawChallenges()
     if not Challenges then
         return
@@ -1181,19 +1201,24 @@ function UI.Renderer.drawTilesMenu()
     local screenHeight = gameState.screen.height
     local centerX = screenWidth / 2
     local centerY = screenHeight / 2
-    
+
     -- Background
     UI.Colors.setBackground()
     love.graphics.rectangle("fill", 0, 0, screenWidth, screenHeight)
-    
+
     -- Title
     local titleColor = UI.Colors.FONT_PINK
-    UI.Fonts.drawText("CHOOSE A TILE", centerX, UI.Layout.scale(60), "title", titleColor, "center")
-    
+    UI.Fonts.drawText("TILE SHOP", centerX, UI.Layout.scale(60), "title", titleColor, "center")
+
+    -- Show current coins in top right
+    local coinsText = "Coins: " .. gameState.coins .. " $"
+    local coinsColor = {1, 0.9, 0.3, 1}
+    UI.Fonts.drawText(coinsText, screenWidth - UI.Layout.scale(20), UI.Layout.scale(30), "large", coinsColor, "right")
+
     -- Instructions
     local instructionColor = UI.Colors.FONT_WHITE
-    UI.Fonts.drawText("Pick one tile to add to your collection", centerX, UI.Layout.scale(120), "medium", instructionColor, "center")
-    
+    UI.Fonts.drawText("Select tiles to purchase (2 $ each)", centerX, UI.Layout.scale(120), "medium", instructionColor, "center")
+
     -- Draw offered tiles
     if gameState.offeredTiles and #gameState.offeredTiles > 0 then
         UI.Renderer.drawTileOffers()
@@ -1202,13 +1227,10 @@ function UI.Renderer.drawTilesMenu()
         local errorColor = UI.Colors.FONT_WHITE
         UI.Fonts.drawText("No tiles available", centerX, centerY, "large", errorColor, "center")
     end
-    
-    -- Return to Map button (only if no tile selected)
-    if not gameState.selectedTileOffer then
-        UI.Renderer.drawReturnToMapButton()
-    else
-        UI.Renderer.drawConfirmTileButton()
-    end
+
+    -- Always show buy button and return to map button
+    UI.Renderer.drawConfirmTileButton()
+    UI.Renderer.drawReturnToMapButton()
 end
 
 function UI.Renderer.drawArtifactsMenu()
@@ -1216,19 +1238,24 @@ function UI.Renderer.drawArtifactsMenu()
     local screenHeight = gameState.screen.height
     local centerX = screenWidth / 2
     local centerY = screenHeight / 2
-    
+
     -- Background
     UI.Colors.setBackground()
     love.graphics.rectangle("fill", 0, 0, screenWidth, screenHeight)
-    
+
     -- Title
     local titleColor = UI.Colors.FONT_PINK
     UI.Fonts.drawText("ARTIFACTS VAULT", centerX, UI.Layout.scale(60), "title", titleColor, "center")
-    
+
+    -- Show current coins in top right
+    local coinsText = "Coins: " .. gameState.coins .. " $"
+    local coinsColor = {1, 0.9, 0.3, 1}
+    UI.Fonts.drawText(coinsText, screenWidth - UI.Layout.scale(20), UI.Layout.scale(30), "large", coinsColor, "right")
+
     -- Placeholder content
     local contentColor = UI.Colors.FONT_WHITE
-    UI.Fonts.drawText("Coming Soon!\nPowerful artifacts will be available here", centerX, centerY - UI.Layout.scale(50), "large", contentColor, "center")
-    
+    UI.Fonts.drawText("Coming Soon!\nPowerful artifacts will be available here\nfor purchase with coins", centerX, centerY - UI.Layout.scale(50), "large", contentColor, "center")
+
     -- Return to Map button
     UI.Renderer.drawReturnToMapButton()
 end
@@ -1238,19 +1265,24 @@ function UI.Renderer.drawContractsMenu()
     local screenHeight = gameState.screen.height
     local centerX = screenWidth / 2
     local centerY = screenHeight / 2
-    
+
     -- Background
     UI.Colors.setBackground()
     love.graphics.rectangle("fill", 0, 0, screenWidth, screenHeight)
-    
+
     -- Title
     local titleColor = UI.Colors.FONT_PINK
     UI.Fonts.drawText("CONTRACTS BOARD", centerX, UI.Layout.scale(60), "title", titleColor, "center")
-    
+
+    -- Show current coins in top right
+    local coinsText = "Coins: " .. gameState.coins .. " $"
+    local coinsColor = {1, 0.9, 0.3, 1}
+    UI.Fonts.drawText(coinsText, screenWidth - UI.Layout.scale(20), UI.Layout.scale(30), "large", coinsColor, "right")
+
     -- Placeholder content
     local contentColor = UI.Colors.FONT_WHITE
-    UI.Fonts.drawText("Coming Soon!\nSpecial contracts will be available here", centerX, centerY - UI.Layout.scale(50), "large", contentColor, "center")
-    
+    UI.Fonts.drawText("Coming Soon!\nSpecial contracts will be available here\nfor purchase with coins", centerX, centerY - UI.Layout.scale(50), "large", contentColor, "center")
+
     -- Return to Map button
     UI.Renderer.drawReturnToMapButton()
 end
@@ -1260,25 +1292,33 @@ function UI.Renderer.drawTileOffers()
     local screenHeight = gameState.screen.height
     local centerX = screenWidth / 2
     local centerY = screenHeight / 2
-    
+
     local tileWidth = UI.Layout.scale(120)
     local tileHeight = UI.Layout.scale(180)
     local spacing = UI.Layout.scale(50)
     local totalWidth = (#gameState.offeredTiles * tileWidth) + ((#gameState.offeredTiles - 1) * spacing)
     local startX = centerX - totalWidth / 2
-    
+
     -- Initialize tile offer buttons if not exists
     if not gameState.tileOfferButtons then
         gameState.tileOfferButtons = {}
     end
-    
+
     for i, tile in ipairs(gameState.offeredTiles) do
         local x = startX + (i - 1) * (tileWidth + spacing)
         local y = centerY - tileHeight / 2
-        
-        -- Determine if this tile is selected
-        local isSelected = gameState.selectedTileOffer == i
-        
+
+        -- Determine if this tile is selected (multi-select now)
+        local isSelected = false
+        if gameState.selectedTilesToBuy then
+            for _, selectedIndex in ipairs(gameState.selectedTilesToBuy) do
+                if selectedIndex == i then
+                    isSelected = true
+                    break
+                end
+            end
+        end
+
         -- Draw tile background
         if isSelected then
             UI.Colors.setFontPink()
@@ -1286,20 +1326,23 @@ function UI.Renderer.drawTileOffers()
             UI.Colors.setBackgroundLight()
         end
         love.graphics.rectangle("fill", x, y, tileWidth, tileHeight, UI.Layout.scale(10))
-        
-        -- Draw tile border
+
+        -- Draw tile border (thicker if selected)
         UI.Colors.setOutline()
+        local borderWidth = isSelected and UI.Layout.scale(4) or UI.Layout.scale(2)
+        love.graphics.setLineWidth(borderWidth)
         love.graphics.rectangle("line", x, y, tileWidth, tileHeight, UI.Layout.scale(10))
-        
+        love.graphics.setLineWidth(1)
+
         -- Draw domino sprite if available
         local spriteKey = tile.left .. tile.right
         local spriteData = dominoSprites and dominoSprites[spriteKey]
         if spriteData and spriteData.sprite then
             local sprite = spriteData.sprite
-            local scale = math.min(tileWidth * 0.8 / sprite:getWidth(), tileHeight * 0.6 / sprite:getHeight())
+            local scale = math.min(tileWidth * 0.8 / sprite:getWidth(), tileHeight * 0.5 / sprite:getHeight())
             local spriteX = x + tileWidth / 2
-            local spriteY = y + tileHeight * 0.4
-            
+            local spriteY = y + tileHeight * 0.35
+
             love.graphics.push()
             love.graphics.translate(spriteX, spriteY)
             love.graphics.scale(scale, scale)
@@ -1310,12 +1353,16 @@ function UI.Renderer.drawTileOffers()
             love.graphics.draw(sprite, -sprite:getWidth() / 2, -sprite:getHeight() / 2)
             love.graphics.pop()
         end
-        
+
         -- Draw tile value text
         local tileText = tile.left .. "-" .. tile.right
         local textColor = isSelected and UI.Colors.FONT_RED or UI.Colors.FONT_WHITE
-        UI.Fonts.drawText(tileText, x + tileWidth / 2, y + tileHeight * 0.8, "medium", textColor, "center")
-        
+        UI.Fonts.drawText(tileText, x + tileWidth / 2, y + tileHeight * 0.7, "medium", textColor, "center")
+
+        -- Draw cost text (2 coins per tile)
+        local costColor = {1, 0.9, 0.3, 1}  -- Gold color
+        UI.Fonts.drawText("2 $", x + tileWidth / 2, y + tileHeight * 0.88, "small", costColor, "center")
+
         -- Store button bounds for touch handling
         gameState.tileOfferButtons[i] = {x = x, y = y, width = tileWidth, height = tileHeight}
     end
@@ -1325,25 +1372,43 @@ function UI.Renderer.drawConfirmTileButton()
     local screenWidth = gameState.screen.width
     local screenHeight = gameState.screen.height
     local centerX = screenWidth / 2
-    
+
+    -- Calculate total cost
+    local selectedCount = gameState.selectedTilesToBuy and #gameState.selectedTilesToBuy or 0
+    local totalCost = selectedCount * 2
+    local canAfford = gameState.coins >= totalCost
+    local hasSelection = selectedCount > 0
+
     local buttonWidth = UI.Layout.scale(200)
     local buttonHeight = UI.Layout.scale(60)
     local buttonX = centerX - buttonWidth/2
     local buttonY = screenHeight - UI.Layout.scale(120)
-    
-    -- Button background
-    UI.Colors.setFontPink()
+
+    -- Button background (disabled if can't afford or no selection)
+    if hasSelection and canAfford then
+        UI.Colors.setFontPink()
+    else
+        UI.Colors.setBackground()
+    end
     love.graphics.rectangle("fill", buttonX, buttonY, buttonWidth, buttonHeight, UI.Layout.scale(5))
-    
+
     -- Button border
     UI.Colors.setOutline()
     love.graphics.rectangle("line", buttonX, buttonY, buttonWidth, buttonHeight, UI.Layout.scale(5))
-    
+
     -- Button text
-    UI.Fonts.drawText("CONFIRM CHOICE", centerX, buttonY + buttonHeight/2, "button", UI.Colors.FONT_WHITE, "center")
-    
+    local buttonText = "BUY (" .. totalCost .. " $)"
+    if not hasSelection then
+        buttonText = "SELECT TILES"
+    elseif not canAfford then
+        buttonText = "NOT ENOUGH $"
+    end
+
+    local textColor = (hasSelection and canAfford) and UI.Colors.FONT_WHITE or UI.Colors.FONT_RED
+    UI.Fonts.drawText(buttonText, centerX, buttonY + buttonHeight/2, "button", textColor, "center")
+
     -- Store button bounds for touch handling
-    gameState.confirmTileButton = {x = buttonX, y = buttonY, width = buttonWidth, height = buttonHeight}
+    gameState.confirmTileButton = {x = buttonX, y = buttonY, width = buttonWidth, height = buttonHeight, enabled = hasSelection and canAfford}
 end
 
 function UI.Renderer.drawReturnToMapButton()

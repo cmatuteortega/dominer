@@ -63,10 +63,19 @@ function love.load()
             shake = 0,
             color = {UI.Colors.FONT_RED[1], UI.Colors.FONT_RED[2], UI.Colors.FONT_RED[3], UI.Colors.FONT_RED[4]}
         },
+        -- Currency system
+        coins = 0,  -- Starting currency
+        startRoundCoins = 0,  -- Coins at start of round for bonus calculation
+        coinsAnimation = {    -- Animation properties for coins display
+            scale = 1.0,
+            shake = 0,
+            color = {1, 0.9, 0.3, 1}  -- Gold color
+        },
         -- Deckbuilding system
         tileCollection = {},  -- All tiles the player has unlocked
         offeredTiles = {},    -- Tiles currently being offered in tiles menu
         selectedTileOffer = nil,  -- Currently selected tile in the offering
+        selectedTilesToBuy = {},  -- Tiles selected for purchase (multi-select)
         -- Challenge system
         activeChallenges = {},  -- Active challenges for current combat
         challengeStates = {},  -- State data for each challenge
@@ -160,6 +169,9 @@ function initializeCombatRound()
         discardButton = {scale = 1.0, pressed = false}
     }
 
+    -- Track coins at start of round for bonus calculation
+    gameState.startRoundCoins = gameState.coins
+
     -- STEP 2: Create fresh deck from player's collection
     gameState.deck = Domino.createDeckFromCollection(gameState.tileCollection)
     Domino.shuffleDeck(gameState.deck)
@@ -221,6 +233,40 @@ function updateScore(newScore, bonusInfo)
     end
 end
 
+function updateCoins(newCoins, bonusInfo)
+    if newCoins ~= gameState.coins then
+        local difference = newCoins - gameState.coins
+        gameState.coins = newCoins
+
+        -- Create coin popup animation
+        local coinX = UI.Layout.scale(60)
+        local coinY = gameState.screen.height - UI.Layout.scale(120)
+
+        UI.Animation.createScorePopup(difference, coinX, coinY, bonusInfo and bonusInfo.hasBonus)
+
+        -- Animate the coins display itself
+        gameState.coinsAnimation = {
+            scale = 1.0,
+            shake = 0,
+            color = {1, 0.9, 0.3, 1}  -- Gold color
+        }
+
+        local color = {1, 0.9, 0.3, 1}  -- Gold color
+        if bonusInfo and bonusInfo.hasBonus then
+            color = {1, 1, 0.5, 1}  -- Bright gold for bonus
+            gameState.coinsAnimation.shake = 3
+        end
+
+        UI.Animation.animateTo(gameState.coinsAnimation, {scale = 1.3}, 0.2, "easeOutBack", function()
+            UI.Animation.animateTo(gameState.coinsAnimation, {scale = 1.0}, 0.3, "easeOutQuart")
+            gameState.coinsAnimation.color = {color[1], color[2], color[3], color[4]}
+            UI.Animation.animateTo(gameState.coinsAnimation, {shake = 0}, 0.5, "easeOutQuart", function()
+                UI.Animation.animateTo(gameState.coinsAnimation.color, {[1] = 1, [2] = 0.9, [3] = 0.3}, 1.0, "easeOutQuart")
+            end)
+        end)
+    end
+end
+
 function startScoringSequence(tiles)
     gameState.scoringSequence = {
         tiles = tiles,
@@ -234,7 +280,7 @@ function startScoringSequence(tiles)
         finalTileAnimating = false,
         waitingForFinalTile = false
     }
-    
+
     -- Sort tiles from left to right for visual consistency
     table.sort(gameState.scoringSequence.tiles, function(a, b)
         return a.x < b.x
@@ -449,6 +495,7 @@ function love.draw()
         UI.Renderer.drawHand(gameState.hand)
         UI.Renderer.drawScore(gameState.score)
         UI.Renderer.drawUI()
+        UI.Renderer.drawCoins()
         UI.Renderer.drawSettingsButton()
         UI.Renderer.drawSettingsMenu()
         -- Draw game over overlay for won state (button only, no full overlay)

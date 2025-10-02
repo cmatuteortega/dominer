@@ -201,6 +201,9 @@ function Touch.released(x, y, istouch, touchId)
     -- Handle victory screen - Continue to Map button
     if gameState.gamePhase == "won" then
         if gameState.continueToMapButton and isPointInRect(x, y, gameState.continueToMapButton) then
+            -- Now increment round counter when player continues
+            gameState.currentRound = gameState.currentRound + 1
+            gameState.targetScore = gameState.baseTargetScore * (2 ^ (gameState.currentRound - 1))
             gameState.gamePhase = "map"
         end
         touchState.isPressed = false
@@ -320,25 +323,47 @@ function Touch.released(x, y, istouch, touchId)
         touchState.touchId = nil
         return
     elseif gameState.gamePhase == "tiles_menu" then
-        -- Handle tile selection
+        -- Handle tile selection (multi-select with toggle)
         if gameState.tileOfferButtons then
             for i, button in ipairs(gameState.tileOfferButtons) do
                 if isPointInRect(x, y, button) then
-                    gameState.selectedTileOffer = i
+                    -- Toggle selection
+                    if not gameState.selectedTilesToBuy then
+                        gameState.selectedTilesToBuy = {}
+                    end
+
+                    local alreadySelected = false
+                    local selectedIndex = nil
+                    for idx, selectedI in ipairs(gameState.selectedTilesToBuy) do
+                        if selectedI == i then
+                            alreadySelected = true
+                            selectedIndex = idx
+                            break
+                        end
+                    end
+
+                    if alreadySelected then
+                        -- Deselect
+                        table.remove(gameState.selectedTilesToBuy, selectedIndex)
+                    else
+                        -- Select
+                        table.insert(gameState.selectedTilesToBuy, i)
+                    end
+
                     touchState.isPressed = false
                     return
                 end
             end
         end
-        
-        -- Handle confirm tile button
-        if gameState.confirmTileButton and isPointInRect(x, y, gameState.confirmTileButton) and gameState.selectedTileOffer then
+
+        -- Handle confirm tile button (now handles multiple tiles)
+        if gameState.confirmTileButton and isPointInRect(x, y, gameState.confirmTileButton) and gameState.confirmTileButton.enabled then
             Touch.confirmTileSelection()
             touchState.isPressed = false
             return
         end
-        
-        -- Handle return to map button
+
+        -- Handle return to map button (skip purchasing)
         if gameState.returnToMapButton and isPointInRect(x, y, gameState.returnToMapButton) then
             gameState.gamePhase = "map"
         end
@@ -660,8 +685,46 @@ end
 function Touch.checkGameEnd()
     if gameState.score >= gameState.targetScore then
         -- Player won this round, show victory screen with continue button
-        gameState.currentRound = gameState.currentRound + 1
-        gameState.targetScore = gameState.baseTargetScore * (2 ^ (gameState.currentRound - 1))
+        -- Don't increment round counter yet - wait for player to click continue
+
+        -- Award coins based on hands remaining
+        local handsLeft = gameState.maxHandsPerRound - gameState.handsPlayed
+        local baseCoins = handsLeft * 2
+        local bonusCoins = math.floor(gameState.startRoundCoins / 5)
+        local totalCoins = baseCoins + bonusCoins
+
+        if totalCoins > 0 then
+            updateCoins(gameState.coins + totalCoins, {hasBonus = bonusCoins > 0})
+
+            -- Show coin breakdown with floating text
+            local centerX = gameState.screen.width / 2
+            local centerY = gameState.screen.height / 2
+
+            UI.Animation.createFloatingText(handsLeft .. " HANDS LEFT = " .. baseCoins .. " $",
+                centerX, centerY + UI.Layout.scale(100), {
+                color = {1, 0.9, 0.3, 1},
+                fontSize = "medium",
+                duration = 2.5,
+                riseDistance = 60,
+                startScale = 0.7,
+                endScale = 1.2,
+                easing = "easeOutBack"
+            })
+
+            if bonusCoins > 0 then
+                UI.Animation.createFloatingText("BONUS: +" .. bonusCoins .. " $",
+                    centerX, centerY + UI.Layout.scale(140), {
+                    color = {1, 1, 0.5, 1},
+                    fontSize = "medium",
+                    duration = 2.5,
+                    riseDistance = 60,
+                    startScale = 0.7,
+                    endScale = 1.2,
+                    easing = "easeOutBack"
+                })
+            end
+        end
+
         gameState.gamePhase = "won"
 
         -- If this was a boss round, generate a completely new map
@@ -926,6 +989,7 @@ function Touch.enterSelectedNode()
         -- Generate tile offers when entering tiles menu
         gameState.offeredTiles = Domino.generateRandomTileOffers(gameState.tileCollection, 3)
         gameState.selectedTileOffer = nil
+        gameState.selectedTilesToBuy = {}  -- Initialize empty selection for multi-purchase
         gameState.gamePhase = "tiles_menu"
     elseif nodeType == "artifacts" then
         gameState.gamePhase = "artifacts_menu"
@@ -941,27 +1005,61 @@ function Touch.enterSelectedNode()
 end
 
 function Touch.confirmTileSelection()
-    if not gameState.selectedTileOffer or not gameState.offeredTiles then
+    if not gameState.selectedTilesToBuy or #gameState.selectedTilesToBuy == 0 then
         return
     end
-    
-    local selectedTile = gameState.offeredTiles[gameState.selectedTileOffer]
-    if not selectedTile then
+
+    if not gameState.offeredTiles then
         return
     end
-    
-    -- Add the selected tile to the player's collection
-    table.insert(gameState.tileCollection, Domino.clone(selectedTile))
-    
-    -- Add the selected tile to the current deck (for immediate use)
-    table.insert(gameState.deck, Domino.clone(selectedTile))
+
+    -- Calculate total cost
+    local totalCost = #gameState.selectedTilesToBuy * 2
+
+    -- Check if player can afford
+    if gameState.coins < totalCost then
+        -- Show error message
+        local centerX = gameState.screen.width / 2
+        local centerY = gameState.screen.height / 2
+
+        UI.Animation.createFloatingText("NOT ENOUGH COINS!", centerX, centerY, {
+            color = {0.9, 0.3, 0.3, 1},
+            fontSize = "large",
+            duration = 1.5,
+            riseDistance = 40,
+            startScale = 0.8,
+            endScale = 1.2,
+            shake = 3,
+            easing = "easeOutQuart"
+        })
+        return
+    end
+
+    -- Deduct coins
+    updateCoins(gameState.coins - totalCost, {hasBonus = false})
+
+    -- Add all selected tiles to the player's collection and deck
+    for _, tileIndex in ipairs(gameState.selectedTilesToBuy) do
+        local selectedTile = gameState.offeredTiles[tileIndex]
+        if selectedTile then
+            -- Add to collection
+            table.insert(gameState.tileCollection, Domino.clone(selectedTile))
+
+            -- Add to current deck (for immediate use)
+            table.insert(gameState.deck, Domino.clone(selectedTile))
+        end
+    end
+
     Domino.shuffleDeck(gameState.deck)
-    
+
     -- Create a satisfying pickup animation
     local centerX = gameState.screen.width / 2
     local centerY = gameState.screen.height / 2
-    
-    UI.Animation.createFloatingText("TILE ACQUIRED!", centerX, centerY - UI.Layout.scale(50), {
+
+    local numTiles = #gameState.selectedTilesToBuy
+    local message = numTiles == 1 and "TILE ACQUIRED!" or numTiles .. " TILES ACQUIRED!"
+
+    UI.Animation.createFloatingText(message, centerX, centerY - UI.Layout.scale(50), {
         color = {0.2, 0.9, 0.3, 1},
         fontSize = "large",
         duration = 2.0,
@@ -971,10 +1069,11 @@ function Touch.confirmTileSelection()
         bounce = true,
         easing = "easeOutBack"
     })
-    
+
     -- Clear selection state and return to map
     gameState.offeredTiles = {}
     gameState.selectedTileOffer = nil
+    gameState.selectedTilesToBuy = {}
     gameState.tileOfferButtons = {}
     gameState.confirmTileButton = nil
     gameState.gamePhase = "map"

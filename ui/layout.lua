@@ -177,4 +177,15 @@ function UI.Layout.getSettingsButtonPosition()
     return x, y, buttonSize
 end
 
+function UI.Layout.getCoinDisplayPosition()
+    local padding = UI.Layout.scale(20)
+    local settingsX, settingsY, settingsSize = UI.Layout.getSettingsButtonPosition()
+
+    -- Position above settings button with more spacing to avoid overlap
+    local x = settingsX + settingsSize / 2
+    local y = settingsY - UI.Layout.scale(40)
+
+    return x, y
+end
+
 return UI.Layout
