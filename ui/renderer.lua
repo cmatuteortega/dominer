@@ -710,23 +710,76 @@ function UI.Renderer.drawButton(text, x, y, width, height, pressed, animScale)
 end
 
 function UI.Renderer.drawCoins()
-    local x, y = UI.Layout.getCoinDisplayPosition()
+    local textX, textY, stackX, stackY = UI.Layout.getCoinDisplayPosition()
 
     local text = gameState.coins .. " $"
 
-    local animProps = {}
-    if gameState.coinsAnimation then
-        animProps.scale = gameState.coinsAnimation.scale or 1
-        animProps.shake = gameState.coinsAnimation.shake or 0
-    end
+    -- Draw text at its own position
+    UI.Fonts.drawText(text, textX, textY, "large", {1, 0.9, 0.3, 1}, "left")
 
-    local color = {1, 0.9, 0.3, 1}  -- Gold color
-    if gameState.coinsAnimation and gameState.coinsAnimation.color then
-        color = gameState.coinsAnimation.color
-    end
+    if coinSprite then
+        local minScale = math.min(gameState.screen.width / 800, gameState.screen.height / 600)
+        local spriteScale = math.max(minScale * 2.0, 1.0)
 
-    -- Draw coins with animated effects
-    UI.Fonts.drawAnimatedText(text, x, y, "large", color, "center", animProps)
+        -- Position coin stack at its own position
+        local coinStartX = stackX
+        local coinBaseY = stackY
+
+        -- PART 1: Draw settled coins
+        local settledCount = gameState.coinsAnimation.settledCoins or gameState.coins
+        local coinsToShow = math.min(settledCount, 50)
+
+        for i = 1, coinsToShow do
+            local stackIndex = math.floor((i - 1) / 15)
+            local coinInStack = ((i - 1) % 15) + 1
+            local coinY = coinBaseY - ((coinInStack - 1) * 4 * spriteScale)
+            local stackOffsetX = stackIndex * (8 * spriteScale)  -- Move RIGHT for new stacks
+            local coinX = coinStartX + stackOffsetX
+
+            local xFlip = 1
+            if gameState.coinsAnimation.coinFlips and gameState.coinsAnimation.coinFlips[i] then
+                xFlip = -1
+            end
+
+            love.graphics.setColor(1, 1, 1, 1)
+            love.graphics.draw(
+                coinSprite,
+                coinX, coinY,
+                0,
+                spriteScale * xFlip, spriteScale,
+                coinSprite:getWidth() / 2,
+                coinSprite:getHeight() / 2
+            )
+        end
+
+        -- PART 2: Draw falling coins on top
+        if gameState.coinsAnimation.fallingCoins then
+            for _, coin in ipairs(gameState.coinsAnimation.fallingCoins) do
+                if coin.phase ~= "waiting" then
+                    local xFlip = coin.xFlip and -1 or 1
+
+                    -- Add slight rotation during fall
+                    local rotation = 0
+                    if coin.phase == "falling" then
+                        rotation = coin.elapsed * 2  -- Spin during fall
+                    end
+
+                    love.graphics.setColor(1, 1, 1, 1)
+                    love.graphics.draw(
+                        coinSprite,
+                        coin.currentX,
+                        coin.currentY,
+                        rotation,
+                        spriteScale * xFlip, spriteScale,
+                        coinSprite:getWidth() / 2,
+                        coinSprite:getHeight() / 2
+                    )
+                end
+            end
+        end
+
+        love.graphics.setColor(1, 1, 1, 1)
+    end
 end
 
 function UI.Renderer.drawChallenges()

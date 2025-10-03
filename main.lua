@@ -33,6 +33,7 @@ function love.load()
     loadDominoSprites()
     loadDemonTileSprites()
     loadNodeSprites()
+    loadCoinSprite()
     
     gameState = {
         screen = {
@@ -69,7 +70,11 @@ function love.load()
         coinsAnimation = {    -- Animation properties for coins display
             scale = 1.0,
             shake = 0,
-            color = {1, 0.9, 0.3, 1}  -- Gold color
+            color = {1, 0.9, 0.3, 1},  -- Gold color
+            coinFlips = {},  -- Random horizontal flips for each coin sprite
+            fallingCoins = {},  -- Array of coins currently animating
+            settledCoins = 0,  -- Number of coins that finished animating
+            targetCoins = 0  -- Final target coin count
         },
         -- Deckbuilding system
         tileCollection = {},  -- All tiles the player has unlocked
@@ -234,36 +239,146 @@ function updateScore(newScore, bonusInfo)
 end
 
 function updateCoins(newCoins, bonusInfo)
-    if newCoins ~= gameState.coins then
-        local difference = newCoins - gameState.coins
-        gameState.coins = newCoins
+    local difference = newCoins - gameState.coins
 
-        -- Create coin popup animation
-        local coinX = UI.Layout.scale(60)
-        local coinY = gameState.screen.height - UI.Layout.scale(120)
+    if difference > 0 then
+        -- Gaining coins - trigger falling animation
+        gameState.coinsAnimation.targetCoins = newCoins
 
-        UI.Animation.createScorePopup(difference, coinX, coinY, bonusInfo and bonusInfo.hasBonus)
+        -- Get base position from layout (separate text and stack positions)
+        local textX, textY, stackX, stackY = UI.Layout.getCoinDisplayPosition()
+        local minScale = math.min(gameState.screen.width / 800, gameState.screen.height / 600)
+        local spriteScale = math.max(minScale * 2.0, 1.0)
 
-        -- Animate the coins display itself
-        gameState.coinsAnimation = {
-            scale = 1.0,
-            shake = 0,
-            color = {1, 0.9, 0.3, 1}  -- Gold color
-        }
+        -- Create falling coin objects for each new coin
+        local oldCoins = gameState.coins
+        for i = 1, difference do
+            local coinIndex = oldCoins + i
 
-        local color = {1, 0.9, 0.3, 1}  -- Gold color
-        if bonusInfo and bonusInfo.hasBonus then
-            color = {1, 1, 0.5, 1}  -- Bright gold for bonus
-            gameState.coinsAnimation.shake = 3
+            -- Calculate target position in stack
+            local stackIndex = math.floor((coinIndex - 1) / 15)
+            local coinInStack = ((coinIndex - 1) % 15) + 1
+
+            local coinStartX = stackX  -- Stack starts at stack position
+            local stackOffsetX = stackIndex * (8 * spriteScale)  -- Move RIGHT for new stacks
+            local targetX = coinStartX + stackOffsetX
+            local targetY = stackY - ((coinInStack - 1) * 4 * spriteScale)
+
+            -- Random horizontal starting offset for variety
+            local randomXOffset = (love.math.random() - 0.5) * UI.Layout.scale(100)
+
+            table.insert(gameState.coinsAnimation.fallingCoins, {
+                index = coinIndex,
+                startY = -UI.Layout.scale(100),  -- Off-screen top
+                currentY = -UI.Layout.scale(100),
+                targetY = targetY,
+                startX = targetX + randomXOffset,
+                currentX = targetX + randomXOffset,
+                targetX = targetX,
+                elapsed = 0,
+                startDelay = (i - 1) * 0.08,  -- 80ms stagger per coin
+                duration = 0.5,
+                settleElapsed = 0,
+                settleDuration = 0.25,
+                phase = "waiting",  -- "waiting", "falling", "settling", "settled"
+                xFlip = love.math.random() > 0.5,
+                stackIndex = stackIndex,
+                coinInStack = coinInStack
+            })
         end
 
-        UI.Animation.animateTo(gameState.coinsAnimation, {scale = 1.3}, 0.2, "easeOutBack", function()
-            UI.Animation.animateTo(gameState.coinsAnimation, {scale = 1.0}, 0.3, "easeOutQuart")
-            gameState.coinsAnimation.color = {color[1], color[2], color[3], color[4]}
-            UI.Animation.animateTo(gameState.coinsAnimation, {shake = 0}, 0.5, "easeOutQuart", function()
-                UI.Animation.animateTo(gameState.coinsAnimation.color, {[1] = 1, [2] = 0.9, [3] = 0.3}, 1.0, "easeOutQuart")
-            end)
-        end)
+        -- Keep existing popup
+        local coinX = UI.Layout.scale(60)
+        local coinY = gameState.screen.height - UI.Layout.scale(120)
+        UI.Animation.createScorePopup(difference, coinX, coinY, bonusInfo and bonusInfo.hasBonus)
+
+    elseif difference < 0 then
+        -- Losing coins - instant update (no animation needed)
+        gameState.coins = newCoins
+        gameState.coinsAnimation.settledCoins = newCoins
+        gameState.coinsAnimation.targetCoins = newCoins
+
+        -- Regenerate flips
+        gameState.coinsAnimation.coinFlips = {}
+        for i = 1, newCoins do
+            gameState.coinsAnimation.coinFlips[i] = love.math.random() > 0.5
+        end
+    end
+end
+
+function updateFallingCoins(dt)
+    if not gameState.coinsAnimation.fallingCoins then return end
+
+    local allSettled = true
+
+    for i = #gameState.coinsAnimation.fallingCoins, 1, -1 do
+        local coin = gameState.coinsAnimation.fallingCoins[i]
+
+        if coin.phase == "waiting" then
+            coin.elapsed = coin.elapsed + dt
+            if coin.elapsed >= coin.startDelay then
+                coin.phase = "falling"
+                coin.elapsed = 0
+            end
+            allSettled = false
+
+        elseif coin.phase == "falling" then
+            coin.elapsed = coin.elapsed + dt
+            local progress = math.min(coin.elapsed / coin.duration, 1.0)
+
+            -- Ease out cubic for falling motion
+            local easedProgress = 1 - math.pow(1 - progress, 3)
+
+            -- Update Y position (falling down)
+            coin.currentY = coin.startY + (coin.targetY - coin.startY) * easedProgress
+
+            -- Update X position (drift toward target)
+            coin.currentX = coin.startX + (coin.targetX - coin.startX) * easedProgress
+
+            if progress >= 1.0 then
+                coin.phase = "settling"
+                coin.settleElapsed = 0
+                coin.currentY = coin.targetY
+                coin.currentX = coin.targetX
+
+                -- Play sound effect here if you have one
+            end
+            allSettled = false
+
+        elseif coin.phase == "settling" then
+            coin.settleElapsed = coin.settleElapsed + dt
+            local progress = math.min(coin.settleElapsed / coin.settleDuration, 1.0)
+
+            -- Bounce effect using easeOutBack
+            local c1 = 1.70158
+            local c3 = c1 + 1
+            local bounce = 1 + c3 * math.pow(progress - 1, 3) + c1 * math.pow(progress - 1, 2)
+
+            -- Slight downward bounce
+            coin.currentY = coin.targetY + (10 * (1 - bounce))
+
+            if progress >= 1.0 then
+                coin.phase = "settled"
+                coin.currentY = coin.targetY
+
+                -- Increment settled count and actual coin count
+                gameState.coinsAnimation.settledCoins = gameState.coinsAnimation.settledCoins + 1
+                gameState.coins = gameState.coinsAnimation.settledCoins
+
+                -- Store flip state
+                gameState.coinsAnimation.coinFlips[coin.index] = coin.xFlip
+
+                -- Remove from falling array
+                table.remove(gameState.coinsAnimation.fallingCoins, i)
+            end
+            allSettled = false
+        end
+    end
+
+    -- Clean up when all settled
+    if allSettled and #gameState.coinsAnimation.fallingCoins == 0 then
+        gameState.coinsAnimation.settledCoins = gameState.coinsAnimation.targetCoins
+        gameState.coins = gameState.coinsAnimation.targetCoins
     end
 end
 
@@ -472,7 +587,8 @@ function love.update(dt)
     Touch.update(dt)
     UI.Animation.update(dt)
     UI.Renderer.updateEyeBlinks(dt)
-    
+    updateFallingCoins(dt)
+
     if gameState.gamePhase == "playing" then
         Hand.update(dt)
         Board.update(dt)
@@ -741,5 +857,12 @@ function loadNodeSprites()
                 selected = selectedSprite
             }
         end
+    end
+end
+
+function loadCoinSprite()
+    local coinFilename = "sprites/currency/coin.png"
+    if love.filesystem.getInfo(coinFilename) then
+        coinSprite = love.graphics.newImage(coinFilename)
     end
 end

@@ -181,11 +181,15 @@ function UI.Layout.getCoinDisplayPosition()
     local padding = UI.Layout.scale(20)
     local settingsX, settingsY, settingsSize = UI.Layout.getSettingsButtonPosition()
 
-    -- Position above settings button with more spacing to avoid overlap
-    local x = settingsX + settingsSize / 2
-    local y = settingsY - UI.Layout.scale(40)
+    -- Position for coin counter text
+    local textX = settingsX + settingsSize / 2 - UI.Layout.scale(20)  -- Move to the left
+    local textY = settingsY - UI.Layout.scale(60)
 
-    return x, y
+    -- Position for coin stack (separate from text)
+    local stackX = settingsX + settingsSize / 2 + UI.Layout.scale(60)
+    local stackY = settingsY - UI.Layout.scale(60)
+
+    return textX, textY, stackX, stackY
 end
 
 return UI.Layout
